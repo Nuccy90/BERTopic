@@ -834,6 +834,48 @@ class BERTopic:
             return self.representative_docs[topic]
         else:
             return self.representative_docs
+        
+    def return_representative_docs(self, docs, topic_nr, n=5):
+
+        """ Return the most representative docs per topic
+        and the document id
+
+        The most representative docs are extracted by taking
+        the exemplars from the HDBSCAN-generated clusters.
+    
+        Arguments:
+            documents: list of strings
+        """
+        # Prepare the condensed tree and luf clusters beneath a given cluster
+        condensed_tree = self.hdbscan_model.condensed_tree_
+        raw_tree = condensed_tree._raw_tree
+        clusters = sorted(condensed_tree._select_clusters())
+        cluster_tree = raw_tree[raw_tree['child_size'] > 1]
+
+        # make dataframe with documents, ids and topics
+        documents = pd.DataFrame({"Document": docs,
+                                "ID": range(len(docs)),
+                                "Topic": self.hdbscan_model.labels_})
+
+        # find the old topic_nr corresponding to the new one
+        mappings = self.topic_mapper.get_mappings(False)
+        old_topics = [k for k,v in mappings.items() if v == topic_nr]
+
+        #  Find the points with maximum lambda value in each leaf
+        leaves = hdbscan.plots._recurse_leaf_dfs(cluster_tree, clusters[old_topics[0]])
+
+        result = np.array([])
+        for leaf in leaves:
+            max_lambda = raw_tree['lambda_val'][raw_tree['parent'] == leaf].max()
+            points = raw_tree['child'][(raw_tree['parent'] == leaf) & (raw_tree['lambda_val'] == max_lambda)]
+            result = np.hstack((result, points))
+
+        representative_docs_ids = list(np.random.choice(result, n, replace=False).astype(int))
+
+        # Convert indices to documents
+        representative_docs = [documents.iloc[doc_id].Document for doc_id in representative_docs_ids]
+
+        return representative_docs_ids, representative_docs
 
     def reduce_topics(self,
                       docs: List[str],
